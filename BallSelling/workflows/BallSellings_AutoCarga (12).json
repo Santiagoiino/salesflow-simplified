@@ -1,0 +1,1465 @@
+{
+  "name": "BallSellings-AutoCarga",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "filters": {}
+      },
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1080,
+        180
+      ],
+      "id": "f866ab91-260e-495e-8f75-bd9d395aaba0",
+      "name": "Gmail Trigger",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "icM8hhCy48CJmsT1",
+          "name": "Gmail account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Tu tarea es analizar el contenido de un correo electrónico recibido por la empresa Grupo Argentum y determinar si está relacionado con una **venta**. En caso afirmativo, también debes identificar por cuál **canal** llegó la venta.\n\n---\n\n### CRITERIOS DE CLASIFICACIÓN DE CANAL:\n\n- Si el correo menciona:\n  - \"¡Vendiste con Mercado Envíos!\"\n  - \"Mercado Libre\"\n  - un número de venta tipo \"Venta #20200004075XXXX\"\n  - o cualquier mención a OCA/envío\n\n  Entonces el canal es: `\"MELI\"`\n\n- Si el correo menciona:\n  - \"MercadoPago\" sin detalles de logística ni envío\n  - o solamente habla del cobro sin detalles de producto o envío\n\n  Entonces el canal es: `\"MEPA\"`\n\n- Si el correo menciona:\n  - \"tu página\"\n  - \"sitio web\"\n  - o cualquier referencia a una compra realizada directamente desde la web\n\n  Entonces el canal es: `\"WEB\"`\n\n- Si no se puede determinar con claridad, o no es una venta, entonces el canal es: `\"otro\"` o `null`.\n\n---\n\n\n### FORMATO DE RESPUESTA (ESTRICTAMENTE OBLIGATORIO)\n\nDebes responder **únicamente** con un objeto\n\ncontexto: {{ $json.ContextoEmail }}\n",
+        "hasOutputParser": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        -360,
+        180
+      ],
+      "id": "8a54a6aa-0608-4f84-80d8-b6ca2719045d",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "messageId": "={{ $('Mail Completo OK').item.json.id }}",
+        "simple": false,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        720,
+        -80
+      ],
+      "id": "02400d27-5dee-4356-847d-23e3758984ce",
+      "name": "Gmail",
+      "webhookId": "f8aa49e6-40f7-4d4a-b193-8f64e21fca33",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "icM8hhCy48CJmsT1",
+          "name": "Gmail account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json[\"text\"];\n\nconst lineas = body.split('\\n').map(linea => linea.trim()).filter(Boolean);\n\nlet producto = \"\";\nlet precio = \"\";\nlet cantidad = \"\";\nlet comprador = \"\";\nlet monto = \"\";\nlet direccion = null; // Valor por defecto ahora es null\n\nfor (let i = 0; i < lineas.length; i++) {\n  if (lineas[i].startsWith(\"Cantidad:\")) {\n    cantidad = lineas[i].replace(\"Cantidad:\", \"\").replace(\"u.\", \"\").trim();\n    precio = lineas[i - 1].trim();\n    producto = lineas[i - 2].trim();\n  }\n  // Buscar línea que contenga \"Dirección\" o \"Domicilio\"\n  if (lineas[i].toLowerCase().includes(\"dirección\") || lineas[i].toLowerCase().includes(\"domicilio\")) {\n    direccion = lineas[i].split(\":\")[1]?.trim() || null;\n  }\n}\n\nconst matchComprador = body.match(/Te compr[oó] (.+?)\\n/i);\nif (matchComprador) comprador = matchComprador[1].trim();\n\nconst matchMonto = body.match(/Cobraste \\$ ?([\\d.]+)/i);\nif (matchMonto) {\n  let rawMonto = matchMonto[1].replace(/\\./g, '');\n  let numero = parseInt(rawMonto, 10);\n  monto = numero.toFixed(2);\n}\n\nreturn [{\n  json: {\n    producto,\n    precio,\n    cantidad,\n    comprador,\n    monto,\n    direccion\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        -80
+      ],
+      "id": "73c47b63-93a6-41fe-98e1-a162b53243b3",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "options": {
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        -360,
+        400
+      ],
+      "id": "2df9cd87-e934-41bd-8bfa-bd28cd331d44",
+      "name": "Groq Chat Model",
+      "credentials": {
+        "groqApi": {
+          "id": "ILdZGL4OgZaiVbmh",
+          "name": "Groq - BS"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"esVenta\": {\n      \"type\": \"boolean\"\n    },\n    \"canal\": {\n      \"type\": \"string\",\n      \"default\": \"otro\"\n    },\n    \"razon\": {\n      \"type\": \"string\"\n    }\n  },\n  \"required\": [\"esVenta\", \"canal\", \"razon\"]\n}\n"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        -200,
+        400
+      ],
+      "id": "d5d7ecb2-3553-4992-a356-55180aa729cb",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        120,
+        580
+      ],
+      "id": "b914fcb8-7f75-4e09-98c7-e60940441bfc",
+      "name": "No Operation, do nothing"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5f5f65f1-2c4f-46f1-a861-47c141aaa604",
+              "name": "=ContextoEmail",
+              "value": "=Dirección de correo electrónico del remitente:{{ $json.From }}\nAsunto del corre electrónico:{{ $json.Subject }}\nCuerpo del corre electrónico:{{ $json.snippet }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -580,
+        180
+      ],
+      "id": "7e36ea72-6d14-427c-99c5-ce3da51b117f",
+      "name": "Set \"ContextoEmail\""
+    },
+    {
+      "parameters": {
+        "errorMessage": "Falla al buscar mails"
+      },
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        -680,
+        400
+      ],
+      "id": "a1470d18-ab8a-4c9c-b3b9-1402bc969af4",
+      "name": "Stop and Error"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "821cbe65-f937-41e6-aa51-9acc062dab72",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "df085244-4b43-450a-8e22-c4dc20bcff89",
+              "leftValue": "={{ $json.threadId }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -880,
+        180
+      ],
+      "id": "5ed2984b-38c3-4f60-b328-c57f45dff51a",
+      "name": "Mail Completo OK"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "37a1c006-70a2-4d9c-aecd-2eb99bbd612e",
+              "leftValue": "={{ $json.producto }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "d3800d76-1019-40b5-83c3-611177e86641",
+              "leftValue": "={{ $json.monto }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "82a852dd-aacc-4f83-aa00-55792f6f4378",
+              "leftValue": "={{ $json.comprador }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "24c1762b-ca29-40d3-8f79-e28b83cb39de",
+              "leftValue": "={{ $json.canal }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "0bae0c38-0c5a-4d7f-bdd7-4ec0709b8bd1",
+              "leftValue": "={{ $json.direccion }}",
+              "rightValue": "=null",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1320,
+        100
+      ],
+      "id": "b402e4e3-6d25-46c8-8028-94426ab80184",
+      "name": "DatosProductos"
+    },
+    {
+      "parameters": {
+        "chatId": "265647212",
+        "text": "=✅ *Nueva Venta Registrada*\n\n🆔 *N° Compra:* {{ $json.fields['N°'] }}\n📦 *Producto:* {{ $json.fields.Producto }}\n💵 *Precio:* {{ $json.fields.Precio }}\n👤 *Comprador:*{{ $json.fields.Cliente }} \n🏷️ *Canal:* {{ $json.fields['Canal de Venta'] }}\n📅 *Fecha:* {{ new Date($json.fields.Fecha).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) }}\n\n",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1900,
+        -20
+      ],
+      "id": "487eb627-fda8-4e9a-9160-7376cc7b8df3",
+      "name": "Telegram",
+      "webhookId": "257fc13e-cd1f-43e4-859e-049dd7d604e1",
+      "credentials": {
+        "telegramApi": {
+          "id": "AD8sOpzo6UAneJQC",
+          "name": "Ballsellings-Prueba"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        340,
+        400
+      ],
+      "id": "0fa97b22-eb61-41ac-b899-042d36fa102b",
+      "name": "Loop Over Items",
+      "retryOnFail": false
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.1,
+      "position": [
+        1020,
+        100
+      ],
+      "id": "52ffe0a1-7614-4652-aff0-4031bc9a6013",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "434097d2-5a37-4d14-97e6-65d8cb1849e1",
+              "leftValue": "={{ $json.output.canal }}",
+              "rightValue": "MELI",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            },
+            {
+              "id": "de36c55a-ddc9-4b42-807d-c1061d100f80",
+              "leftValue": "={{ $json.output.canal }}",
+              "rightValue": "MEPA",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            },
+            {
+              "id": "d07d9c6c-0ccc-4833-bdbc-0b6ef6e2d054",
+              "leftValue": "={{ $json.output.canal }}",
+              "rightValue": "WEB",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            },
+            {
+              "id": "ac61c429-be69-4548-b10f-7d223b39380c",
+              "leftValue": "={{ $json.output.canal }}",
+              "rightValue": "OTRO",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        300,
+        160
+      ],
+      "id": "38f6f762-dc0b-4d57-a735-8e0f792e8b13",
+      "name": "Canal OK?"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3c841bff-7d7a-4540-b9ab-b70f9468f59c",
+              "leftValue": "={{ $json.output.esVenta }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        160
+      ],
+      "id": "e50539cb-a926-498a-bbab-81c36cf99e22",
+      "name": "Es Venta?"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "766eb14c-bc42-4b3d-a427-7563af147125",
+              "name": "canal",
+              "value": "={{ $json.output.canal }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        720,
+        120
+      ],
+      "id": "bc1f3b62-a0cd-4bf2-a2f0-00b3d77f06d6",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appMUnGEGg6EQ3Hls",
+          "mode": "list",
+          "cachedResultName": "Ventas de Muebles",
+          "cachedResultUrl": "https://airtable.com/appMUnGEGg6EQ3Hls"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblZfyH2Rxdl8yPPn",
+          "mode": "list",
+          "cachedResultName": "Ventas",
+          "cachedResultUrl": "https://airtable.com/appMUnGEGg6EQ3Hls/tblZfyH2Rxdl8yPPn"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Cliente": "={{ $json.comprador }}",
+            "Canal de Venta": "={{ $json.canal }}",
+            "Producto": "={{ $json.producto }}",
+            "Precio": "={{ $json.monto }}",
+            "Domicilio": "={{ $json.direccion }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "N° Compra",
+              "displayName": "N° Compra",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Producto",
+              "displayName": "Producto",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Precio",
+              "displayName": "Precio",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Cliente",
+              "displayName": "Cliente",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Canal de Venta",
+              "displayName": "Canal de Venta",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Fecha de Compra",
+              "displayName": "Fecha de Compra",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "DNI",
+              "displayName": "DNI",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Mail",
+              "displayName": "Mail",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Tipo",
+              "displayName": "Tipo",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Telefono",
+              "displayName": "Telefono",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Domicilio",
+              "displayName": "Domicilio",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Localidad",
+              "displayName": "Localidad",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "CP",
+              "displayName": "CP",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Fecha",
+              "displayName": "Fecha",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1540,
+        -20
+      ],
+      "id": "89e9fee2-5163-453c-9a73-cc13d63a92af",
+      "name": "Airtable",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "5dKKGthF8fHjSqKa",
+          "name": "SIINOCOTADO"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $('Gmail Trigger').item.json.id }}",
+        "labelIds": [
+          "Label_7776883211782433028"
+        ]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        720,
+        -280
+      ],
+      "id": "a6ec45e2-913d-481d-9d35-91b00b914042",
+      "name": "Gmail1",
+      "webhookId": "96eda667-5701-4dab-a5c7-86ab31b3b55d",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "icM8hhCy48CJmsT1",
+          "name": "Gmail account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "434097d2-5a37-4d14-97e6-65d8cb1849e1",
+              "leftValue": "={{ $json.output.canal }}",
+              "rightValue": "MELI",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            },
+            {
+              "id": "de36c55a-ddc9-4b42-807d-c1061d100f80",
+              "leftValue": "={{ $json.output.canal }}",
+              "rightValue": "MEPA",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            },
+            {
+              "id": "d07d9c6c-0ccc-4833-bdbc-0b6ef6e2d054",
+              "leftValue": "={{ $json.output.canal }}",
+              "rightValue": "WEB",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            },
+            {
+              "id": "ac61c429-be69-4548-b10f-7d223b39380c",
+              "leftValue": "={{ $json.output.canal }}",
+              "rightValue": "OTRO",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        380
+      ],
+      "id": "bc3fc541-c715-4e1b-bca9-fb1c9083dd6a",
+      "name": "Canal OK?2"
+    },
+    {
+      "parameters": {
+        "errorMessage": "Falla Canal"
+      },
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        720,
+        400
+      ],
+      "id": "85a7ad06-9b7f-4fe3-b157-d03ec946a1b0",
+      "name": "Falla Canal"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=# Overview\nEres un AI Agent encargado de analizar un JSON con datos de una venta y generar un correo electrónico formal para solicitar internamente a un responsable de la empresa que complete los datos faltantes.\n\n## Context\n- El JSON contiene los siguientes campos: producto, precio, cantidad, comprador, dirección, canal.\n- Algunos campos pueden tener valor null, vacío o no estar presentes.\n- El objetivo es generar un mail formal y amable solicitando completar los datos faltantes.\n- El mail debe listar los datos completos en una sección y los datos faltantes en otra sección, claramente diferenciadas.\n- Se debe resaltar de forma llamativa los datos faltantes para facilitar su identificación.\n- No se debe inventar ningún dato.\n- El output debe ser exclusivamente el cuerpo del mail listo para enviar, sin explicaciones adicionales.\n\n## Instructions\n1. Recibir un JSON con los datos de la venta.\n2. Analizar dinámicamente cada campo del JSON recibido.\n3. Clasificar los campos en dos grupos:\n   - Datos completos: campos con valor válido.\n   - Datos faltantes: campos vacíos, null o no presentes.\n4. Generar un mail en castellano formal y cordial.\n5. Estructurar el mail en dos secciones claras:\n   - \"Datos disponibles de la venta:\"\n   - \"Datos faltantes por completar:\" (resaltado llamativo)\n6. No incluir análisis previo, explicaciones ni pasos intermedios en la salida.\n7. El resultado debe ser exclusivamente el cuerpo del mail, directamente utilizable para ser enviado.\n\n## Tools\n- Procesador de JSON\n- Generador de texto en castellano\n\n## Examples\n- Input JSON:\n```json\n{\n  \"producto\": \"Laptop\",\n  \"cantidad\": \"2\",\n  \"comprador\": \"Juan Pérez\",\n  \"monto\": \"\",\n  \"dirección\": \"Av. Siempre Viva 123\",\n  \"canal\": null\n}\n```\n- Output Mail:\nEstimado/a,\n\nEspero que se encuentre muy bien.\n\nNos ponemos en contacto para solicitar su colaboración en la validación y completitud de los datos de la siguiente venta:\n\n**Datos disponibles de la venta:**\n- Producto: Laptop\n- Cantidad: 2\n- Comprador: Juan Pérez\n- Dirección: Av. Siempre Viva 123\n\n**Datos faltantes por completar:**\n- Precio\n- Canal\n\nAgradecemos mucho su colaboración para completar los campos faltantes.\nPor favor, responda a este correo con la información requerida a la mayor brevedad posible.\n\nQuedamos atentos a su respuesta.\n\nSaludos cordiales,\n\nEquipo de Ventas\n\n## SOP (Standard Operating Procedure)\n1. Recibir el JSON de entrada.\n2. Acceder dinámicamente a cada campo del JSON.\n3. Clasificar los campos en datos completos y datos faltantes.\n4. Redactar directamente el cuerpo del mail, separando y destacando claramente las dos secciones.\n5. No agregar análisis, encabezados ni explicaciones adicionales en el output.\n6. Salida: solo el cuerpo del correo electrónico.\n\n## Final Notes\n- Mantener un tono formal y cordial.\n- No traducir los nombres de los campos.\n- No agregar encabezados, firmas dinámicas ni introducciones de procesamiento.\n- No modificar campos que ya estén completos.\n- Escribir siempre en castellano.\n- Solo generar el mail interno para la empresa, sin ningún dato ni texto adicional.\n\n## Input\n- Producto: {{ $json.producto }}\n- Precio: {{ $json.monto }}\n- Cantidad: {{ $json.cantidad }}\n- Comprador: {{ $json.comprador }}\n- Monto: {{ $json.monto }}\n- Dirección: {{ $json.direccion }}\n- Canal: {{ $json.canal }}\n---\n\n",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        2100,
+        200
+      ],
+      "id": "34c30863-8553-4023-a2b9-20c64d515da7",
+      "name": "AI Agent1"
+    },
+    {
+      "parameters": {
+        "options": {
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        2100,
+        380
+      ],
+      "id": "62f84c90-7771-49ea-a782-f1ba5ec7a526",
+      "name": "Groq Chat Model1",
+      "credentials": {
+        "groqApi": {
+          "id": "ILdZGL4OgZaiVbmh",
+          "name": "Groq - BS"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendAndWait",
+        "sendTo": "siinocotado@gmail.com",
+        "subject": "Venta - Falta Producto",
+        "message": "={{ $json.output }}",
+        "responseType": "freeText",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2480,
+        200
+      ],
+      "id": "04c27366-c2c6-48dc-b834-490049eb4d4e",
+      "name": "Gmail2",
+      "webhookId": "8730ae8c-4c5e-469a-9623-b5870da67d53",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "icM8hhCy48CJmsT1",
+          "name": "Gmail account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "91a1685f-ee1a-42bd-83ed-a963de20f59b",
+              "name": "producto",
+              "value": "={{ $json.producto }}",
+              "type": "string"
+            },
+            {
+              "id": "e018766b-912d-4fe2-bec5-6126c401a776",
+              "name": "cantidad",
+              "value": "={{ $json.cantidad }}",
+              "type": "string"
+            },
+            {
+              "id": "e10d0b7d-f120-4bb0-a338-ddccc655b515",
+              "name": "comprador",
+              "value": "={{ $json.comprador }}",
+              "type": "string"
+            },
+            {
+              "id": "0f2cbbfb-f0ab-408b-9000-f646986c6430",
+              "name": "monto",
+              "value": "={{ $json.monto }}",
+              "type": "string"
+            },
+            {
+              "id": "aaa1f554-96b9-48a9-8066-a2279f5a824e",
+              "name": "direccion",
+              "value": "={{ $json.direccion }}",
+              "type": "string"
+            },
+            {
+              "id": "147c18bd-fc22-4a8e-af42-61cae6ebc7a7",
+              "name": "canal",
+              "value": "={{ $json.canal }}",
+              "type": "string"
+            },
+            {
+              "id": "59d4b1c0-50a1-4d9f-b351-a535ba1af9f7",
+              "name": "datos faltantes",
+              "value": "={{ $json.campos_faltantes[0] }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1880,
+        200
+      ],
+      "id": "21d7e2df-211b-4761-9648-a9883a6729ee",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $json;\n\nlet camposFaltantes = [];\n\nfor (const campo in data) {\n  if (data[campo] === null || data[campo] === \"\") {\n    camposFaltantes.push(campo);\n  }\n}\n\nreturn [{\n  json: {\n    ...data,\n    campos_faltantes: camposFaltantes,\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        200
+      ],
+      "id": "352bf51b-e49e-482d-a9d7-2853eda13765",
+      "name": "Code1"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=# Overview\nEres un AI Agent encargado de completar los datos de una venta utilizando la información proporcionada por el cliente en una respuesta de correo electrónico.\n\n## Context\n- Recibes individualmente los siguientes campos:\n  - Producto\n  - Cantidad\n  - Comprador\n  - Monto\n  - Dirección\n  - Canal\n- Algunos campos pueden tener valor `null`, estar vacíos o no presentes.\n- También recibes un texto de respuesta del cliente que contiene los datos faltantes.\n- El objetivo es completar únicamente los campos que estaban vacíos usando la información de la respuesta.\n- No debes modificar los campos que ya estaban completos.\n- No debes inventar información: si no puedes identificar un dato en la respuesta, deja el campo como estaba.\n\n## Instructions\n1. Recibir los campos sueltos y el texto de respuesta.\n2. Detectar qué campos están vacíos (`null`, `\"\"`) en el input inicial.\n3. Analizar el texto de respuesta para completar sólo los campos faltantes.\n4. Mantener los campos completos tal como estaban.\n5. Si un dato no puede ser encontrado en la respuesta, dejarlo `null`.\n6. Devolver como salida un JSON estructurado con todos los campos.\n\n## Tools\n- Procesador de valores de campos\n- Análisis semántico de texto en castellano\n\n## Example\n**Input inicial:**\n```plaintext\nProducto: Laptop\nCantidad: 2\nComprador: Juan Pérez\nMonto: null\nDirección: Av. Siempre Viva 123\nCanal: null\n```\n\n**Texto de respuesta:**\n```plaintext\nEl precio fue $2500 y el canal de venta fue Mercado Libre.\n```\n\n**Output JSON:**\n```json\n{\n  \"producto\": \"Laptop\",\n  \"cantidad\": \"2\",\n  \"comprador\": \"Juan Pérez\",\n  \"monto\": null,\n  \"dirección\": \"Av. Siempre Viva 123\",\n  \"canal\": \"Mercado Libre\"\n}\n```\n\n---\n\n# Variables de entrada (para n8n)\n\n**Input inicial:**\n- Producto: `{{ $('Edit Fields1').item.json.producto }}`\n- Cantidad: `{{ $('Edit Fields1').item.json.cantidad }}`\n- Comprador: `{{ $('Edit Fields1').item.json.comprador }}`\n- Monto: `{{ $('Edit Fields1').item.json.monto }}`\n- Dirección: `{{ $('Edit Fields1').item.json.direccion }}`\n- Canal: `{{ $('Edit Fields1').item.json.canal }}`\n\n**Texto de respuesta:**\n```plaintext\n{{ $json.data.text }}\n```\n\n---\n\n# Important\n- Mantener el formato del JSON original en la salida.\n- No inventar información si el cliente no la proporcionó.\n- No modificar campos que ya tenían valor.\n- Salida: ***exclusivamente*** el JSON actualizado, sin explicaciones ni texto adicional.\n- Escribir siempre en castellano.\n\n",
+        "hasOutputParser": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        2720,
+        200
+      ],
+      "id": "3ddc5e04-669e-41cc-b134-e31d0f07e6a2",
+      "name": "AI Agent2"
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"producto\": {\n      \"type\": \"string\",\n      \"description\": \"Nombre del producto vendido\"\n    },\n    \"cantidad\": {\n      \"type\": \"string\",\n      \"description\": \"Cantidad de unidades vendidas\"\n    },\n    \"comprador\": {\n      \"type\": \"string\",\n      \"description\": \"Nombre del comprador\"\n    },\n    \"monto\": {\n      \"type\": \"string\",\n      \"description\": \"Monto total cobrado en la venta (en formato string o numérico)\"\n    },\n    \"direccion\": {\n      \"type\": \"string\",\n      \"description\": \"Dirección del comprador\"\n    },\n    \"canal\": {\n      \"type\": \"string\",\n      \"description\": \"Canal por donde se realizó la venta\"\n    }\n  },\n  \"required\": [\n    \"producto\",\n    \"cantidad\",\n    \"comprador\",\n    \"monto\",\n    \"direccion\",\n    \"canal\"\n  ]\n}\n"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        2880,
+        440
+      ],
+      "id": "9d5bb54e-b67c-4222-97e1-ac2ab2f6a803",
+      "name": "Structured Output Parser1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "aa04a1fb-6347-4d14-acb6-55950d926085",
+              "name": "producto",
+              "value": "={{ $json.producto }}",
+              "type": "string"
+            },
+            {
+              "id": "e3693c4d-b64b-4206-ac31-5613074294ec",
+              "name": "cantidad",
+              "value": "={{ $json.cantidad }}",
+              "type": "string"
+            },
+            {
+              "id": "8e7a3b63-3186-420f-b2f8-20c150b4e76a",
+              "name": "comprador",
+              "value": "={{ $json.comprador }}",
+              "type": "string"
+            },
+            {
+              "id": "b15a1907-fc80-4937-91f5-410393e4bf49",
+              "name": "monto",
+              "value": "={{ $json.monto }}",
+              "type": "string"
+            },
+            {
+              "id": "23aa06c9-adf5-466d-9a72-1b12ed359cea",
+              "name": "direccion",
+              "value": "={{ $json.direccion }}",
+              "type": "string"
+            },
+            {
+              "id": "16226047-d468-475c-9f85-9026b447792f",
+              "name": "canal",
+              "value": "={{ $json.canal }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1160,
+        100
+      ],
+      "id": "66c6be29-b5e7-4f2e-b299-e32e739dd8b9",
+      "name": "Edit Fields2"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fd294f68-0120-4cd3-9f33-18cbc3d8246f",
+              "name": "producto",
+              "value": "={{ $json.output.producto }}",
+              "type": "string"
+            },
+            {
+              "id": "24480aee-0d19-4cce-9ee6-e3da537a953d",
+              "name": "cantidad",
+              "value": "={{ $json.output.cantidad }}",
+              "type": "string"
+            },
+            {
+              "id": "277f5fe0-c141-43f7-8182-ba218a67c505",
+              "name": "comprador",
+              "value": "={{ $json.output.comprador }}",
+              "type": "string"
+            },
+            {
+              "id": "61fafb3a-8b8c-4274-bf23-c038f375c17f",
+              "name": "monto",
+              "value": "={{ $json.output.monto }}",
+              "type": "string"
+            },
+            {
+              "id": "9e47b020-db02-42ca-91fd-300f4de48130",
+              "name": "direccion",
+              "value": "={{ $json.output.direccion }}",
+              "type": "string"
+            },
+            {
+              "id": "51bbe180-1dff-48ad-bf10-2eda8634d7ae",
+              "name": "canal",
+              "value": "={{ $json.output.canal }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3080,
+        200
+      ],
+      "id": "9542fc0e-aee1-4c9f-aedb-01380418afff",
+      "name": "Edit Fields3"
+    },
+    {
+      "parameters": {
+        "options": {
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        2740,
+        420
+      ],
+      "id": "912a27bd-8a05-4289-8c51-4bcfc1a3fecf",
+      "name": "Groq Chat Model2",
+      "credentials": {
+        "groqApi": {
+          "id": "ILdZGL4OgZaiVbmh",
+          "name": "Groq - BS"
+        }
+      }
+    }
+  ],
+  "pinData": {
+    "Gmail Trigger": [
+      {
+        "json": {
+          "id": "19655c57cb9b09fb",
+          "threadId": "19655c57cb9b09fb",
+          "snippet": "Mercado Libre SANTIAGOIINO Venta #5208943215 Ahora, tenés que preparar el paquete y enviarlo Tenés tiempo hasta el martes para enviarlo por OCA. En el detalle de la venta te contamos todo lo que",
+          "payload": {
+            "mimeType": "multipart/alternative"
+          },
+          "sizeEstimate": 40646,
+          "historyId": "2634",
+          "internalDate": "1745195724000",
+          "labels": [
+            {
+              "id": "INBOX",
+              "name": "INBOX"
+            },
+            {
+              "id": "CATEGORY_PERSONAL",
+              "name": "CATEGORY_PERSONAL"
+            },
+            {
+              "id": "UNREAD",
+              "name": "UNREAD"
+            },
+            {
+              "id": "Label_7776883211782433028",
+              "name": "Ventas"
+            }
+          ],
+          "From": "Santiago Iino Cotado <santiagoiino@hotmail.com>",
+          "To": "\"siinocotado@gmail.com\" <siinocotado@gmail.com>",
+          "Subject": "Fw: ¡Vendiste con Mercado Envíos! Funko Pop! Batman Classic - The Riddler #183"
+        }
+      }
+    ],
+    "Gmail2": [
+      {
+        "json": {
+          "data": {
+            "text": "Vidal 1686"
+          }
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Mail Completo OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Es Venta?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set \"ContextoEmail\"": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail Completo OK": {
+      "main": [
+        [
+          {
+            "node": "Set \"ContextoEmail\"",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop and Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DatosProductos": {
+      "main": [
+        [
+          {
+            "node": "Airtable",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Canal OK?2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Canal OK?": {
+      "main": [
+        [
+          {
+            "node": "Gmail",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Gmail1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Es Venta?": {
+      "main": [
+        [
+          {
+            "node": "Canal OK?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Airtable": {
+      "main": [
+        [
+          {
+            "node": "Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram": {
+      "main": [
+        []
+      ]
+    },
+    "Canal OK?2": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Falla Canal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent1": {
+      "main": [
+        [
+          {
+            "node": "Gmail2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code1": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail2": {
+      "main": [
+        [
+          {
+            "node": "AI Agent2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent2": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser1": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent2",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields2": {
+      "main": [
+        [
+          {
+            "node": "DatosProductos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields3": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model2": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent2",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Argentina/Buenos_Aires",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "un8sdcWsWHSZ6PVP"
+  },
+  "versionId": "f961de42-db4c-4326-8361-fa51bda4ee33",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "e67fbbc32f1af63de11196761df5c051a28e707009ed45c748fc17dd8915420f"
+  },
+  "id": "amHMWWGF7xvbDFsE",
+  "tags": []
+}
